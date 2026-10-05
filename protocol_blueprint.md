@@ -100,11 +100,13 @@ To solve TCP stream fragmentation and coalescing, the receiver executes a determ
   "reason": "ALL_SHIPS_SUNK"
 }
 ```
+## 3. Connection Termination & Lifecycle Management
+
 ### 3.1 Graceful Application Disconnection
-Clients intent on leaving send a structured DISCONNECT message. Following this, the application calls sock.close(), which initiates the TCP 4-way FIN handshake. The server reads this clean exit, declares a win by forfeit, and reclaims resources.
+Clients intent on leaving send a structured `DISCONNECT` message. Following this, the application calls `sock.close()`, which initiates the TCP 4-way FIN handshake. The server reads this clean exit, declares a win by forfeit, and reclaims resources.
 
 ### 3.2 TCP 0-Byte EOF Detection
-When a remote peer closes the socket cleanly, recv() does not raise an exception; it returns 0 bytes (b"" in Python). To prevent infinite CPU loops, the server's receive loop explicitly checks if not data: to detect this End-Of-File (EOF) condition and triggers the disconnection state transition.
+When a remote peer closes the socket cleanly, `recv()` does not raise an exception; it returns 0 bytes (`b""` in Python). To prevent infinite CPU loops, the server's receive loop explicitly checks `if not data:` to detect this End-Of-File (EOF) condition and triggers the disconnection state transition.
 
 ### 3.3 Abrupt Network Drops (TCP RST)
-If a client crashes or the network drops abruptly, no FIN handshake is completed. Attempting to read or write to this severed connection raises low-level exceptions. The server's socket loops wrap operations in a try/except block to catch ConnectionResetError (TCP RST) and BrokenPipeError (EPIPE), triggering a cleanup transition to prevent the server process from crashing.
+If a client crashes or the network drops abruptly, no FIN handshake is completed. Attempting to read or write to this severed connection raises low-level exceptions. The server's socket loops wrap operations in a `try/except` block to catch `ConnectionResetError` (TCP RST) and `BrokenPipeError` (EPIPE), triggering a cleanup transition to prevent the server process from crashing.
