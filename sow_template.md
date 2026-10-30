@@ -1,7 +1,7 @@
 # CS 457 Project Statement of Work (SOW) & Protocol Specification Template
 
 **Student Name:** [Austin Reynolds]  
-**Date:** [2026-09-23]  
+**Date:** [2026-10-29]  
 **Course:** CS 457 - Computer Networks  
 **Target Server Domain:** `server.Reynolds.edu`  
 **Git Repository:** [https://github.com/AustinTaylorReynolds/cs457-networked-battleship]
