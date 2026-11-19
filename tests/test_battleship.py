@@ -7,6 +7,7 @@ Run from the repository root:
 
 import json
 import logging
+from multiprocessing import pool
 import socket
 import struct
 import subprocess
@@ -17,6 +18,7 @@ import unittest
 import io
 from contextlib import redirect_stdout
 from unittest.mock import patch
+from concurrent.futures import ThreadPoolExecutor, thread, thread
 import client  # noqa: E402
 
 
@@ -634,9 +636,9 @@ class EndToEndClientTests(unittest.TestCase):
         game.start()
         thread = threading.Thread(target=game.serve_forever, daemon=True)
         thread.start()
+        procs = []
         try:
             moves = "5 0\n5 1\n5 2\n"
-            procs = []
             for name in ("Alice", "Bob"):
                 procs.append(subprocess.Popen(
                     [sys.executable, str(ROOT / "client.py"), "-i",
@@ -644,16 +646,16 @@ class EndToEndClientTests(unittest.TestCase):
                     stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE, text=True, cwd=ROOT))
                 time.sleep(0.2)
-            for proc in procs:               # feed BOTH before waiting on
-                proc.stdin.write("auto\n" + moves)   # either, or the game
-                proc.stdin.close()                    # cannot progress
+
+            def drive(proc):
+                return proc.communicate(input="auto\n" + moves, timeout=20)
+
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                futures = [pool.submit(drive, p) for p in procs]
+                results = [f.result() for f in futures]
+
             outputs = []
-            for proc in procs:
-                out = proc.stdout.read()
-                err = proc.stderr.read()
-                proc.wait(timeout=20)
-                proc.stdout.close()
-                proc.stderr.close()
+            for proc, (out, err) in zip(procs, results):
                 self.assertEqual(proc.returncode, 0, err)
                 self.assertNotIn("Traceback", err)
                 outputs.append(out)
@@ -670,7 +672,15 @@ class EndToEndClientTests(unittest.TestCase):
             self.assertEqual(
                 sum("round ends by forfeit" in o for o in outputs), 1)
         finally:
+            for proc in procs:
+                if proc.poll() is None:
+                    proc.kill()
+                    proc.communicate()
+                for stream in (proc.stdin, proc.stdout, proc.stderr):
+                    if stream and not stream.closed:
+                        stream.close()
             game.shutdown()
+            thread.join(timeout=3)
 
 
 if __name__ == "__main__":
