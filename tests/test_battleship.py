@@ -14,6 +14,12 @@ import sys
 import threading
 import time
 import unittest
+import io
+from contextlib import redirect_stdout
+from unittest.mock import patch
+import client  # noqa: E402
+
+
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -669,3 +675,100 @@ class EndToEndClientTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class ClientDNSTests(ServerTestCase):
+    """Focused tests for client.py DNS resolution and graceful failure."""
+
+    def test_resolve_hostname_uses_dns_for_reynolds_domain(self):
+        """resolve_hostname delegates directly to socket.gethostbyname."""
+        with patch("client.socket.gethostbyname",
+                   return_value="10.0.0.50") as mock_dns:
+            ip = client.resolve_hostname("server.reynolds.edu")
+        self.assertEqual(ip, "10.0.0.50")
+        mock_dns.assert_called_once_with("server.reynolds.edu")
+
+    def test_resolve_hostname_catches_gaierror_gracefully(self):
+        """Simulated DNS outage prints a friendly error and exits 1."""
+        buf = io.StringIO()
+        with patch("client.socket.gethostbyname",
+                   side_effect=socket.gaierror(socket.EAI_NONAME,
+                                               "Name or service not known")):
+            with redirect_stdout(buf), self.assertRaises(SystemExit) as cm:
+                client.resolve_hostname("server.reynolds.edu")
+
+        self.assertEqual(cm.exception.code, 1)
+        out = buf.getvalue()
+        self.assertIn("[ERROR] Unable to resolve DNS hostname "
+                      "'server.reynolds.edu'.", out)
+        self.assertIn("Cisco router DNS configuration", out)
+        self.assertNotIn("Traceback", out)
+
+    def test_resolve_hostname_catches_unicode_error_gracefully(self):
+        """Malformed IDNA labels exit 1 cleanly instead of raising."""
+        buf = io.StringIO()
+        with redirect_stdout(buf), self.assertRaises(SystemExit) as cm:
+            client.resolve_hostname("..bad")
+        self.assertEqual(cm.exception.code, 1)
+        self.assertIn("[ERROR] Unable to resolve DNS hostname '..bad'.",
+                      buf.getvalue())
+
+    def test_blank_hostname_rejected_by_cli(self):
+        """Empty/whitespace -i values are rejected before DNS lookup."""
+        for bad in ("", "   "):
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "client.py"),
+                 "-i", bad, "-p", "8080"],
+                capture_output=True, text=True, timeout=10, cwd=ROOT,
+            )
+            self.assertEqual(result.returncode, 2, repr(bad))
+            self.assertIn("hostname must not be empty", result.stderr)
+
+    def test_main_resolves_hostname_and_connects_to_resolved_ip(self):
+        """client.main resolves server.reynolds.edu and talks to the server."""
+        # Occupy both slots so the client connects, receives SERVER_FULL,
+        # and exits cleanly without requiring interactive gameplay input.
+        self.join_two("Alice", "Bob")
+        buf = io.StringIO()
+        with patch("client.socket.gethostbyname",
+                   return_value="127.0.0.1") as mock_dns:
+            with redirect_stdout(buf):
+                rc = client.main([
+                    "-i", "server.reynolds.edu",
+                    "-p", str(self.server.port),
+                    "-n", "Austin",
+                ])
+
+        mock_dns.assert_called_once_with("server.reynolds.edu")
+        self.assertEqual(rc, 0)
+        out = buf.getvalue()
+        self.assertIn("Resolved server.reynolds.edu -> 127.0.0.1", out)
+        self.assertIn("SERVER_FULL", out)
+
+    def test_server_disconnect_returns_exit_code_one(self):
+        """If the server drops mid-session, client.main fails gracefully."""
+        dummy_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        dummy_server.bind(("127.0.0.1", 0))
+        dummy_server.listen(1)
+        port = dummy_server.getsockname()[1]
+
+        def accept_and_drop():
+            conn, _ = dummy_server.accept()
+            conn.close()
+
+        t = threading.Thread(target=accept_and_drop, daemon=True)
+        t.start()
+        buf = io.StringIO()
+        try:
+            with patch("client.socket.gethostbyname", return_value="127.0.0.1"):
+                with redirect_stdout(buf):
+                    rc = client.main([
+                        "-i", "server.reynolds.edu",
+                        "-p", str(port),
+                        "-n", "Austin",
+                    ])
+        finally:
+            t.join(timeout=2)
+            dummy_server.close()
+
+        self.assertEqual(rc, 1)
+        self.assertIn("Lost connection to the server", buf.getvalue())
