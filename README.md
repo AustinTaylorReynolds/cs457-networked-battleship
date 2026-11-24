@@ -1,6 +1,17 @@
-# CS 457 Networked Battleship (Sprint 3)
+# CS 457 Networked Battleship (Sprint 4)
 
-Two-player Battleship over TCP. Design documents are in `docs/`; the code
+Two-player Battleship over TCP.
+
+## Sprint 4: CML network
+
+| Deliverable | File |
+|-------------|------|
+| CML topology (R1 + 3 subnets + ext-conn) | [`sprint_4_topology.yaml`](sprint_4_topology.yaml) |
+| Wireshark DNS capture | [`sprint_4_dns_lookup.pcap`](sprint_4_dns_lookup.pcap) |
+| Network verification report | [`sprint_4_network_report.md`](sprint_4_network_report.md) |
+
+Deployment and capture steps are in [`docs/sprint_4_runbook.md`](docs/sprint_4_runbook.md).
+`server.reynolds.edu` resolves to `192.168.20.100` through R1. Design documents are in `docs/`; the code
 follows them: length-prefixed JSON framing, the FSM in
 `docs/fsm_specification.md`, and a thread-per-client server guarded by one
 lock (`docs/concurrency_design.md`).

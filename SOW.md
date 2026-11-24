@@ -106,20 +106,22 @@ The full analysis, shared-state table, and sequence diagrams are in [`docs/concu
 
 ---
 
-## 5. CML Multi-Subnet Topology & Wireshark Deployment Plan (Sprint 4 & 5 Deliverable)
+## 5. CML Single-Router Topology & Wireshark Deployment Plan (Sprint 4 & 5 Deliverable, revised for Sprint 4)
+
+Sprint 4 replaced the earlier two-router (R1/R2 backbone) plan with a single Cisco IOSv router. All three subnets attach directly to R1, so no inter-router routing is needed. The lab file is [`sprint_4_topology.yaml`](sprint_4_topology.yaml) and the procedure is [`docs/sprint_4_runbook.md`](docs/sprint_4_runbook.md).
 
 ### 5.1 Subnet & Router Design
-- **Subnet A (Client 1):** `192.168.10.0/24` (Interface `Gi0/1` on Router R1)
-- **Subnet B (Client 2):** `192.168.11.0/24` (Interface `Gi0/2` on Router R1)
-- **Subnet C (Game Server):** `192.168.20.0/24` (Interface `Gi0/1` on Router R2)
-- **Router Backbone:** `10.0.0.0/30` (Interface `Gi0/0` on R1 <-> `Gi0/0` on R2)
+- **Subnet A (Client 1, `ar-Client1`):** `192.168.10.0/24`, gateway `192.168.10.1` on R1 `Gi0/1`
+- **Subnet B (Client 2, `ar-Client2`):** `192.168.11.0/24`, gateway `192.168.11.1` on R1 `Gi0/2`
+- **Subnet C (Game Server, `ar-Server`):** `192.168.20.0/24`, gateway `192.168.20.1` on R1 `Gi0/3`
+- **Outside:** R1 `Gi0/0` gets its address by DHCP from the CML External Connector (NAT, `192.168.255.0/24`), with PAT (`ip nat inside source list 1 interface Gi0/0 overload`) for all three internal subnets.
 
-### 5.2 DHCP Pools & DNS Configuration Plan
-- **Router R1 DHCP Pool 1 (`CLIENT1_POOL`):** Leases `192.168.10.10` - `192.168.10.50`, gateway `192.168.10.1`, DNS `10.0.0.2`.
-- **Router R1 DHCP Pool 2 (`CLIENT2_POOL`):** Leases `192.168.11.10` - `192.168.11.50`, gateway `192.168.11.1`, DNS `10.0.0.2`.
-- **Router R2 Authoritative DNS:** Configured with `ip dns server` and static host mapping `server.reynolds.edu` -> `192.168.20.100`.
+### 5.2 DHCP Pools & DNS Configuration
+- **R1 DHCP Pool `CLIENT1_POOL`:** `192.168.10.0/24` (`.1` excluded), gateway `192.168.10.1`, DNS `192.168.10.1`.
+- **R1 DHCP Pool `CLIENT2_POOL`:** `192.168.11.0/24` (`.1` excluded), gateway `192.168.11.1`, DNS `192.168.11.1`.
+- **Game Server:** static `192.168.20.100/24`, default gateway `192.168.20.1`, resolver `192.168.20.1`.
+- **R1 Authoritative DNS:** `ip dns server` with static A record `ip host server.reynolds.edu 192.168.20.100`.
 
 ### 5.3 Deployment Strategy & Wireshark Trace Capture
-- **CML Deployment Strategy:** Deploy `server.py` onto the Subnet C node (`192.168.20.100`) behind Router R2, and `client.py` onto the Subnet A and Subnet B nodes behind Router R1.
-- **Cisco Infrastructure Configuration:** Router R1 DHCP pools (`CLIENT1_POOL`, `CLIENT2_POOL`) and Router R2 authoritative DNS (`ip host server.reynolds.edu 192.168.20.100`).
-- **Wireshark Trace Capture Plan:** Capture the DHCP DORA exchange (`dhcp_negotiation.pcap`) and DNS query/response resolution (`dns_lookup.pcap`).
+- **CML Deployment Strategy:** Run `server.py -p 8080` on `ar-Server` (`192.168.20.100`) and `client.py -i server.reynolds.edu -p 8080` on `ar-Client1` and `ar-Client2`. The client resolves the FQDN through R1 with `socket.gethostbyname()` (IPv4 only).
+- **Wireshark Trace Capture:** Capture the DNS Standard Query and Response for `server.reynolds.edu` on the R1 `Gi0/1` ↔ `ar-Client1` link (`sprint_4_dns_lookup.pcap`). The DHCP capture requirement was removed in Sprint 4.
